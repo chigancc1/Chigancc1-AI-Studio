@@ -98,7 +98,7 @@
               <label>Resolution</label>
               <select id="res">
                 <option value="720p" selected>720p</option>
-                <option value="1080p">1080p</option> <!-- added -->
+                <option value="1080p">1080p</option>
               </select>
             </div>
           </div>
@@ -134,12 +134,35 @@
       const promptEl = $("#prompt"), negEl = $("#neg"), fileEl = $("#file"), goEl = $("#go"),
             player = $("#player"), progress = $("#progress"), meta = $("#meta"), dl = $("#download");
 
-      function getAspect(){ return [...document.querySelectorAll("input[name='ar']")].find(x=>x.checked)?.value || "9:16"; }
-      async function readFileAsBase64(f){ const buf = await f.arrayBuffer(); return btoa(String.fromCharCode(...new Uint8Array(buf))); }
+      function getAspect(){
+        return [...document.querySelectorAll("input[name='ar']")]
+          .find(x=>x.checked)?.value || "9:16";
+      }
+
+      // ✅ Safe Base64 conversion (no stack overflow) + optional size guard
+      function readFileAsBase64(file){
+        return new Promise((resolve, reject)=>{
+          const MAX_IMAGE_MB = 20; // adjust if you want to allow bigger
+          if (file.size > MAX_IMAGE_MB * 1024 * 1024) {
+            reject(new Error(`Image is ${(file.size/1024/1024).toFixed(2)} MB. Please upload ≤ ${MAX_IMAGE_MB} MB.`));
+            return;
+          }
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result || "";
+            const base64 = String(result).split(",")[1] || "";
+            resolve(base64);
+          };
+          reader.onerror = () => reject(reader.error || new Error("Failed to read file"));
+          reader.readAsDataURL(file);
+        });
+      }
 
       goEl.addEventListener("click", async ()=>{
         try{
-          const f = fileEl.files?.[0]; if(!f){ alert("Pick a PNG/JPG image"); return; }
+          const f = fileEl.files?.[0];
+          if(!f){ alert("Pick a PNG/JPG image"); return; }
+
           const imageBase64 = await readFileAsBase64(f);
           const imageMime = f.type || (f.name.toLowerCase().endsWith(".png")?"image/png":"image/jpeg");
 
@@ -156,7 +179,11 @@
           goEl.disabled = true; progress.textContent = "Starting generation…"; dl.style.display="none";
 
           // 1) Start op
-          const startRes = await fetch("/api/veo-start", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(body) });
+          const startRes = await fetch("/api/veo-start", {
+            method:"POST",
+            headers:{ "Content-Type":"application/json" },
+            body: JSON.stringify(body)
+          });
           const startData = await startRes.json();
           if(!startRes.ok) throw new Error(startData.error || "Failed to start");
           const opName = startData.name;
