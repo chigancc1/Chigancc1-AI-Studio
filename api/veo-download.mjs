@@ -12,13 +12,25 @@ async function getOperationByName(ai, apiKey, name) {
       try { return await ai.operations.getOperation({ name }); } catch (_) {}
     }
   }
-  const url = `https://generativelanguage.googleapis.com/v1beta/${encodeURIComponent(name)}?key=${encodeURIComponent(apiKey)}`;
-  const r = await fetch(url);
-  if (!r.ok) {
-    const text = await r.text().catch(()=>String(r.status));
-    throw new Error(`REST get operation failed: ${r.status} ${text}`);
+
+  const tryRest = async (opName) => {
+    const base = `https://generativelanguage.googleapis.com/v1beta/${encodeURI(opName)}`;
+    const url = `${base}?key=${encodeURIComponent(apiKey)}`;
+    const r = await fetch(url);
+    if (!r.ok) {
+      const t = await r.text().catch(() => String(r.status));
+      throw new Error(`REST get operation failed: ${r.status} ${t}`);
+    }
+    return await r.json();
+  };
+
+  try { return await tryRest(name); } catch (e1) {
+    if (!String(name).startsWith("operations/") && !String(name).includes("/operations/")) {
+      const alt = `operations/${name}`;
+      return await tryRest(alt);
+    }
+    throw e1;
   }
-  return await r.json();
 }
 
 export default async function handler(req, res) {
