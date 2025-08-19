@@ -1,36 +1,32 @@
 import { GoogleGenAI } from "@google/genai";
 import fs from "fs";
 
-/** Same helper as in status */
-async function getOperationByName(ai, apiKey, name) {
+async function getOperation(ai, apiKey, name) {
   if (ai?.operations) {
     if (typeof ai.operations.getVideosOperation === "function") {
-      try { return await ai.operations.getVideosOperation({ name }); } catch (_) {}
-      try { return await ai.operations.getVideosOperation({ operation: { name } }); } catch (_) {}
+      try { return await ai.operations.getVideosOperation({ name }); } catch {}
+      try { return await ai.operations.getVideosOperation({ operation: { name } }); } catch {}
     }
     if (typeof ai.operations.getOperation === "function") {
-      try { return await ai.operations.getOperation({ name }); } catch (_) {}
+      try { return await ai.operations.getOperation({ name }); } catch {}
     }
   }
+  const base = `https://generativelanguage.googleapis.com/v1beta/${encodeURI(name.startsWith("operations/") ? name : `operations/${name}`)}`;
+  const url = `${base}?key=${encodeURIComponent(apiKey)}`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`REST get operation failed: ${r.status} ${await r.text().catch(()=>r.status)}`);
+  return await r.json();
+}
 
-  const tryRest = async (opName) => {
-    const base = `https://generativelanguage.googleapis.com/v1beta/${encodeURI(opName)}`;
-    const url = `${base}?key=${encodeURIComponent(apiKey)}`;
-    const r = await fetch(url);
-    if (!r.ok) {
-      const t = await r.text().catch(() => String(r.status));
-      throw new Error(`REST get operation failed: ${r.status} ${t}`);
-    }
-    return await r.json();
-  };
-
-  try { return await tryRest(name); } catch (e1) {
-    if (!String(name).startsWith("operations/") && !String(name).includes("/operations/")) {
-      const alt = `operations/${name}`;
-      return await tryRest(alt);
-    }
-    throw e1;
-  }
+function extractFileRef(op) {
+  const resp = op?.response || {};
+  return (
+    resp?.generatedVideos?.[0]?.video ||
+    resp?.videos?.[0]?.video ||
+    resp?.video ||
+    resp?.generatedVideo ||
+    null
+  );
 }
 
 export default async function handler(req, res) {
@@ -42,12 +38,20 @@ export default async function handler(req, res) {
     if (!name) return res.status(400).json({ error: "Missing operation name" });
 
     const ai = new GoogleGenAI({ apiKey });
-    const op = await getOperationByName(ai, apiKey, name);
+    const op = await getOperation(ai, apiKey, name);
 
     if (!op?.done) return res.status(202).json({ error: "Not ready" });
 
-    const fileRef = op?.response?.generatedVideos?.[0]?.video;
-    if (!fileRef) return res.status(500).json({ error: "No video in response" });
+    const fileRef = extractFileRef(op);
+    if (!fileRef) {
+      const reason =
+        op?.error?.message ||
+        op?.response?.error?.message ||
+        op?.response?.blockReason ||
+        op?.response?.state ||
+        "No video in response";
+      return res.status(422).json({ error: reason });
+    }
 
     const tmp = "/tmp/veo-output.mp4";
     await ai.files.download({ file: fileRef, downloadPath: tmp });
