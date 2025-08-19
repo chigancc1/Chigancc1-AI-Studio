@@ -186,8 +186,20 @@
           });
           const startData = await startRes.json();
           if(!startRes.ok) throw new Error(startData.error || "Failed to start");
-          const opName = startData.name;
-          if(!opName) throw new Error("Missing operation name");
+
+          // 🔧 Tolerant extraction of operation name across SDK shapes
+          const opName =
+            startData?.name ||
+            startData?.operation?.name ||
+            startData?.op?.name ||
+            startData?.metadata?.name ||
+            startData?.operationName ||
+            startData?.id;
+
+          if(!opName){
+            console.log("Start response (no name)", startData);
+            throw new Error("Missing operation name");
+          }
 
           // 2) Poll
           let tries = 0;
