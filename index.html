@@ -209,11 +209,20 @@
             const stRes = await fetch(`/api/veo-status?name=${encodeURIComponent(opName)}`);
             const st = await stRes.json();
             if(!stRes.ok) throw new Error(st.error || "Status error");
+
             if(st.done){
+              // ✅ NEW: only download if status confirms a video exists
+              if (st.hasVideo === false) {
+                const msg = st.reason ? `No video in response: ${st.reason}` : "No video in response";
+                throw new Error(msg);
+              }
+
               progress.textContent = "Downloading video…";
-              // 3) Stream MP4
               const dlRes = await fetch(`/api/veo-download?name=${encodeURIComponent(opName)}`);
-              if(!dlRes.ok) throw new Error("Download failed");
+              if(!dlRes.ok) {
+                const txt = await dlRes.text().catch(()=> "");
+                throw new Error(txt || "Download failed");
+              }
               const blob = await dlRes.blob();
               const url = URL.createObjectURL(blob);
               player.src = url;
